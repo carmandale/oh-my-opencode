@@ -1,3 +1,5 @@
+// Maps model IDs to their "high reasoning" variant (internal convention)
+// For OpenAI models, this signals that reasoning_effort should be set to "high"
 const HIGH_VARIANT_MAP: Record<string, string> = {
   // Claude
   "claude-sonnet-4-5": "claude-sonnet-4-5-high",
@@ -7,23 +9,20 @@ const HIGH_VARIANT_MAP: Record<string, string> = {
   "gemini-3-pro-low": "gemini-3-pro-high",
   // GPT-5
   "gpt-5": "gpt-5-high",
-  "gpt-5-low": "gpt-5-high",
-  "gpt-5-medium": "gpt-5-high",
   "gpt-5-mini": "gpt-5-mini-high",
-  "gpt-5-codex": "gpt-5-codex-high",
+  "gpt-5-nano": "gpt-5-nano-high",
+  "gpt-5-pro": "gpt-5-pro-high",
+  "gpt-5-chat-latest": "gpt-5-chat-latest-high",
   // GPT-5.1
   "gpt-5.1": "gpt-5.1-high",
-  "gpt-5.1-low": "gpt-5.1-high",
-  "gpt-5.1-medium": "gpt-5.1-high",
+  "gpt-5.1-chat-latest": "gpt-5.1-chat-latest-high",
   "gpt-5.1-codex": "gpt-5.1-codex-high",
+  "gpt-5.1-codex-mini": "gpt-5.1-codex-mini-high",
   "gpt-5.1-codex-max": "gpt-5.1-codex-max-high",
-  // GPT-5.2 (gpt-5.2 = Thinking, gpt-5.2-chat-latest = Instant, gpt-5.2-pro = Pro)
+  // GPT-5.2
   "gpt-5.2": "gpt-5.2-high",
-  "gpt-5.2-low": "gpt-5.2-high",
-  "gpt-5.2-medium": "gpt-5.2-high",
   "gpt-5.2-chat-latest": "gpt-5.2-chat-latest-high",
   "gpt-5.2-pro": "gpt-5.2-pro-high",
-  "gpt-5.2-pro-medium": "gpt-5.2-pro-high",
 }
 
 const ALREADY_HIGH: Set<string> = new Set([
@@ -34,20 +33,20 @@ const ALREADY_HIGH: Set<string> = new Set([
   "gemini-3-pro-high",
   // GPT-5
   "gpt-5-high",
-  "gpt-5-xhigh",
   "gpt-5-mini-high",
-  "gpt-5-codex-high",
+  "gpt-5-nano-high",
+  "gpt-5-pro-high",
+  "gpt-5-chat-latest-high",
   // GPT-5.1
   "gpt-5.1-high",
-  "gpt-5.1-xhigh",
+  "gpt-5.1-chat-latest-high",
   "gpt-5.1-codex-high",
+  "gpt-5.1-codex-mini-high",
   "gpt-5.1-codex-max-high",
   // GPT-5.2
   "gpt-5.2-high",
-  "gpt-5.2-xhigh",
   "gpt-5.2-chat-latest-high",
   "gpt-5.2-pro-high",
-  "gpt-5.2-pro-xhigh",
 ])
 
 export const THINKING_CONFIGS: Record<string, Record<string, unknown>> = {
