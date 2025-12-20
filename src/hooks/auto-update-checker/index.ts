@@ -1,5 +1,5 @@
 import type { PluginInput } from "@opencode-ai/plugin"
-import { getCachedVersion, getLocalDevVersion, findPluginEntry, getLatestVersion, updatePinnedVersion } from "./checker"
+import { getCachedVersion, getLocalDevVersion, findPluginEntry, getLatestVersion, updatePinnedVersion, isCustomFork } from "./checker"
 import { invalidatePackage } from "./cache"
 import { PACKAGE_NAME } from "./constants"
 import { log } from "../../shared/logger"
@@ -37,6 +37,7 @@ export function createAutoUpdateCheckerHook(ctx: PluginInput, options: AutoUpdat
       setTimeout(() => {
         const cachedVersion = getCachedVersion()
         const localDevVersion = getLocalDevVersion(ctx.directory)
+        const customFork = isCustomFork(ctx.directory)
         const displayVersion = localDevVersion ?? cachedVersion
 
         showConfigErrorsIfAny(ctx).catch(() => {})
@@ -46,6 +47,14 @@ export function createAutoUpdateCheckerHook(ctx: PluginInput, options: AutoUpdat
             showLocalDevToast(ctx, displayVersion, isSisyphusEnabled).catch(() => {})
           }
           log("[auto-update-checker] Local development mode")
+          return
+        }
+
+        if (customFork) {
+          if (showStartupToast) {
+            showCustomForkToast(ctx, displayVersion, isSisyphusEnabled).catch(() => {})
+          }
+          log("[auto-update-checker] Custom fork mode")
           return
         }
 
@@ -196,6 +205,24 @@ async function showLocalDevToast(ctx: PluginInput, version: string | null, isSis
     })
     .catch(() => {})
   log(`[auto-update-checker] Local dev toast shown: v${displayVersion}`)
+}
+
+async function showCustomForkToast(ctx: PluginInput, version: string | null, isSisyphusEnabled: boolean): Promise<void> {
+  const displayVersion = version ?? "custom"
+  const message = isSisyphusEnabled
+    ? `${CUSTOM_BUILD_TAG} THINK.ALIGN.ACT. Sisyphus steering.`
+    : `${CUSTOM_BUILD_TAG} oMoMoMo...`
+  await ctx.client.tui
+    .showToast({
+      body: {
+        title: `@carmandale/oh-my-opencode ${displayVersion}`,
+        message,
+        variant: "info" as const,
+        duration: 5000,
+      },
+    })
+    .catch(() => {})
+  log(`[auto-update-checker] Custom fork toast shown: v${displayVersion}`)
 }
 
 export type { UpdateCheckResult, AutoUpdateCheckerOptions } from "./types"
