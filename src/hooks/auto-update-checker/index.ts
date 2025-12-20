@@ -51,7 +51,7 @@ export function createAutoUpdateCheckerHook(ctx: PluginInput, options: AutoUpdat
           }).catch(() => {})
           log("[auto-update-checker] Toast shown")
         }
-      }, 0)
+      }, 1500)
     },
   }
 }
