@@ -1,7 +1,7 @@
 import type { PluginInput } from "@opencode-ai/plugin"
-import { getCachedVersion, getLocalDevVersion, findPluginEntry, getLatestVersion, updatePinnedVersion, isCustomFork } from "./checker"
+import { getCachedVersion, getLocalDevVersion, findPluginEntry, getLatestVersion, updatePinnedVersion } from "./checker"
 import { invalidatePackage } from "./cache"
-import { PACKAGE_NAME } from "./constants"
+import { PACKAGE_NAME, DISPLAY_NAME } from "./constants"
 import { log } from "../../shared/logger"
 import { getConfigLoadErrors, clearConfigLoadErrors } from "../../shared/config-errors"
 import type { AutoUpdateCheckerOptions } from "./types"
@@ -37,7 +37,6 @@ export function createAutoUpdateCheckerHook(ctx: PluginInput, options: AutoUpdat
       setTimeout(() => {
         const cachedVersion = getCachedVersion()
         const localDevVersion = getLocalDevVersion(ctx.directory)
-        const customFork = isCustomFork(ctx.directory)
         const displayVersion = localDevVersion ?? cachedVersion
 
         showConfigErrorsIfAny(ctx).catch(() => {})
@@ -47,14 +46,6 @@ export function createAutoUpdateCheckerHook(ctx: PluginInput, options: AutoUpdat
             showLocalDevToast(ctx, displayVersion, isSisyphusEnabled).catch(() => {})
           }
           log("[auto-update-checker] Local development mode")
-          return
-        }
-
-        if (customFork) {
-          if (showStartupToast) {
-            showCustomForkToast(ctx, displayVersion, isSisyphusEnabled).catch(() => {})
-          }
-          log("[auto-update-checker] Custom fork mode")
           return
         }
 
@@ -147,7 +138,7 @@ async function showVersionToast(ctx: PluginInput, version: string | null, messag
   await ctx.client.tui
     .showToast({
       body: {
-        title: `@carmandale/oh-my-opencode ${displayVersion}`,
+        title: `${DISPLAY_NAME} ${displayVersion}`,
         message,
         variant: "info" as const,
         duration: 5000,
@@ -165,7 +156,7 @@ async function showUpdateAvailableToast(
   await ctx.client.tui
     .showToast({
       body: {
-        title: `@carmandale/oh-my-opencode (upstream: ${latestVersion})`,
+        title: `${DISPLAY_NAME} (update: ${latestVersion})`,
         message: getToastMessage(true, latestVersion),
         variant: "info" as const,
         duration: 8000,
@@ -179,7 +170,7 @@ async function showAutoUpdatedToast(ctx: PluginInput, oldVersion: string, newVer
   await ctx.client.tui
     .showToast({
       body: {
-        title: `@carmandale/oh-my-opencode Updated!`,
+        title: `${DISPLAY_NAME} Updated!`,
         message: `v${oldVersion} → v${newVersion}\nRestart OpenCode to apply.`,
         variant: "success" as const,
         duration: 8000,
@@ -197,7 +188,7 @@ async function showLocalDevToast(ctx: PluginInput, version: string | null, isSis
   await ctx.client.tui
     .showToast({
       body: {
-        title: `@carmandale/oh-my-opencode ${displayVersion} (dev)`,
+        title: `${DISPLAY_NAME} ${displayVersion} (dev)`,
         message,
         variant: "warning" as const,
         duration: 5000,
@@ -205,24 +196,6 @@ async function showLocalDevToast(ctx: PluginInput, version: string | null, isSis
     })
     .catch(() => {})
   log(`[auto-update-checker] Local dev toast shown: v${displayVersion}`)
-}
-
-async function showCustomForkToast(ctx: PluginInput, version: string | null, isSisyphusEnabled: boolean): Promise<void> {
-  const displayVersion = version ?? "custom"
-  const message = isSisyphusEnabled
-    ? `${CUSTOM_BUILD_TAG} THINK.ALIGN.ACT. Sisyphus steering.`
-    : `${CUSTOM_BUILD_TAG} oMoMoMo...`
-  await ctx.client.tui
-    .showToast({
-      body: {
-        title: `@carmandale/oh-my-opencode ${displayVersion}`,
-        message,
-        variant: "info" as const,
-        duration: 5000,
-      },
-    })
-    .catch(() => {})
-  log(`[auto-update-checker] Custom fork toast shown: v${displayVersion}`)
 }
 
 export type { UpdateCheckResult, AutoUpdateCheckerOptions } from "./types"

@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url"
 import type { NpmDistTags, OpencodeConfig, PackageJson, UpdateCheckResult } from "./types"
 import {
   PACKAGE_NAME,
-  UPSTREAM_PACKAGE_NAME,
   NPM_REGISTRY_URL,
   NPM_FETCH_TIMEOUT,
   INSTALLED_PACKAGE_JSON,
@@ -41,7 +40,7 @@ export function getLocalDevPath(directory: string): string | null {
       const plugins = config.plugin ?? []
 
       for (const entry of plugins) {
-        if (entry.startsWith("file://") && (entry.includes(PACKAGE_NAME) || entry.includes(UPSTREAM_PACKAGE_NAME))) {
+        if (entry.startsWith("file://") && entry.includes(PACKAGE_NAME)) {
           try {
             return fileURLToPath(entry)
           } catch {
@@ -55,26 +54,6 @@ export function getLocalDevPath(directory: string): string | null {
   }
 
   return null
-}
-
-export function isCustomFork(directory: string): boolean {
-  for (const configPath of getConfigPaths(directory)) {
-    try {
-      if (!fs.existsSync(configPath)) continue
-      const content = fs.readFileSync(configPath, "utf-8")
-      const config = JSON.parse(stripJsonComments(content)) as OpencodeConfig
-      const plugins = config.plugin ?? []
-      
-      for (const entry of plugins) {
-        if (entry === PACKAGE_NAME || entry.startsWith(`${PACKAGE_NAME}@`)) {
-          return true
-        }
-      }
-    } catch {
-      continue
-    }
-  }
-  return false
 }
 
 function findPackageJsonUp(startPath: string): string | null {
