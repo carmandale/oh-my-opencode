@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url"
 import type { NpmDistTags, OpencodeConfig, PackageJson, UpdateCheckResult } from "./types"
 import {
   PACKAGE_NAME,
+  DISPLAY_NAME,
   NPM_REGISTRY_URL,
   NPM_FETCH_TIMEOUT,
   INSTALLED_PACKAGE_JSON,
@@ -67,7 +68,7 @@ function findPackageJsonUp(startPath: string): string | null {
         try {
           const content = fs.readFileSync(pkgPath, "utf-8")
           const pkg = JSON.parse(content) as PackageJson
-          if (pkg.name === PACKAGE_NAME) return pkgPath
+          if (pkg.name === PACKAGE_NAME || pkg.name === DISPLAY_NAME) return pkgPath
         } catch {}
       }
       const parent = path.dirname(dir)
