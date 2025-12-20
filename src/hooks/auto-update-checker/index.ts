@@ -35,27 +35,22 @@ export function createAutoUpdateCheckerHook(ctx: PluginInput, options: AutoUpdat
       hasChecked = true
 
       setTimeout(() => {
-        const cachedVersion = getCachedVersion()
-        const localDevVersion = getLocalDevVersion(ctx.directory)
-        const displayVersion = localDevVersion ?? cachedVersion
-
         showConfigErrorsIfAny(ctx).catch(() => {})
 
-        if (localDevVersion) {
-          if (showStartupToast) {
-            showLocalDevToast(ctx, displayVersion, isSisyphusEnabled).catch(() => {})
-          }
-          log("[auto-update-checker] Local development mode")
-          return
-        }
-
         if (showStartupToast) {
-          showVersionToast(ctx, displayVersion, getToastMessage(false)).catch(() => {})
+          const message = isSisyphusEnabled
+            ? "THINK.ALIGN.ACT. Sisyphus steering."
+            : "oMoMoMoMo..."
+          ctx.client.tui.showToast({
+            body: {
+              title: "@carmandale/oh-my-opencode",
+              message,
+              variant: "info" as const,
+              duration: 5000,
+            },
+          }).catch(() => {})
+          log("[auto-update-checker] Toast shown")
         }
-
-        runBackgroundUpdateCheck(ctx, autoUpdate, getToastMessage).catch(err => {
-          log("[auto-update-checker] Background update check failed:", err)
-        })
       }, 0)
     },
   }
