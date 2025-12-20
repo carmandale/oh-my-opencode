@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import type { PluginInput } from "@opencode-ai/plugin"
+import { getMainSessionID } from "../features/claude-code-session-state"
 import {
   findNearestMessageWithFields,
   MESSAGE_STORAGE,
@@ -61,12 +62,20 @@ function detectInterrupt(error: unknown): boolean {
   return false
 }
 
+const COUNTDOWN_SECONDS = 2
+const TOAST_DURATION_MS = 900 // Slightly less than 1s so toasts don't overlap
+
+interface CountdownState {
+  secondsRemaining: number
+  intervalId: ReturnType<typeof setInterval>
+}
+
 export function createTodoContinuationEnforcer(ctx: PluginInput): TodoContinuationEnforcer {
   const remindedSessions = new Set<string>()
   const interruptedSessions = new Set<string>()
   const errorSessions = new Set<string>()
   const recoveringSessions = new Set<string>()
-  const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const pendingCountdowns = new Map<string, CountdownState>()
 
   const markRecovering = (sessionID: string): void => {
     recoveringSessions.add(sessionID)
@@ -89,11 +98,10 @@ export function createTodoContinuationEnforcer(ctx: PluginInput): TodoContinuati
         }
         log(`[${HOOK_NAME}] session.error received`, { sessionID, isInterrupt, error: props?.error })
         
-        // Cancel pending continuation if error occurs
-        const timer = pendingTimers.get(sessionID)
-        if (timer) {
-          clearTimeout(timer)
-          pendingTimers.delete(sessionID)
+        const countdown = pendingCountdowns.get(sessionID)
+        if (countdown) {
+          clearInterval(countdown.intervalId)
+          pendingCountdowns.delete(sessionID)
         }
       }
       return
@@ -105,75 +113,98 @@ export function createTodoContinuationEnforcer(ctx: PluginInput): TodoContinuati
 
       log(`[${HOOK_NAME}] session.idle received`, { sessionID })
 
-      // Cancel any existing timer to debounce
-      const existingTimer = pendingTimers.get(sessionID)
-      if (existingTimer) {
-        clearTimeout(existingTimer)
-        log(`[${HOOK_NAME}] Cancelled existing timer`, { sessionID })
+      const mainSessionID = getMainSessionID()
+      if (mainSessionID && sessionID !== mainSessionID) {
+        log(`[${HOOK_NAME}] Skipped: not main session`, { sessionID, mainSessionID })
+        return
       }
 
-      // Schedule continuation check
-      const timer = setTimeout(async () => {
-        pendingTimers.delete(sessionID)
-        log(`[${HOOK_NAME}] Timer fired, checking conditions`, { sessionID })
+      const existingCountdown = pendingCountdowns.get(sessionID)
+      if (existingCountdown) {
+        clearInterval(existingCountdown.intervalId)
+        pendingCountdowns.delete(sessionID)
+        log(`[${HOOK_NAME}] Cancelled existing countdown`, { sessionID })
+      }
 
-        // Check if session is in recovery mode - if so, skip entirely without clearing state
-        if (recoveringSessions.has(sessionID)) {
-          log(`[${HOOK_NAME}] Skipped: session in recovery mode`, { sessionID })
-          return
-        }
+      // Check if session is in recovery mode - if so, skip entirely without clearing state
+      if (recoveringSessions.has(sessionID)) {
+        log(`[${HOOK_NAME}] Skipped: session in recovery mode`, { sessionID })
+        return
+      }
 
-        const shouldBypass = interruptedSessions.has(sessionID) || errorSessions.has(sessionID)
-        
+      const shouldBypass = interruptedSessions.has(sessionID) || errorSessions.has(sessionID)
+      
+      if (shouldBypass) {
         interruptedSessions.delete(sessionID)
         errorSessions.delete(sessionID)
+        log(`[${HOOK_NAME}] Skipped: error/interrupt bypass`, { sessionID })
+        return
+      }
 
-        if (shouldBypass) {
-          log(`[${HOOK_NAME}] Skipped: error/interrupt bypass`, { sessionID })
+      if (remindedSessions.has(sessionID)) {
+        log(`[${HOOK_NAME}] Skipped: already reminded this session`, { sessionID })
+        return
+      }
+
+      // Check for incomplete todos BEFORE starting countdown
+      let todos: Todo[] = []
+      try {
+        log(`[${HOOK_NAME}] Fetching todos for session`, { sessionID })
+        const response = await ctx.client.session.todo({
+          path: { id: sessionID },
+        })
+        todos = (response.data ?? response) as Todo[]
+        log(`[${HOOK_NAME}] Todo API response`, { sessionID, todosCount: todos?.length ?? 0 })
+      } catch (err) {
+        log(`[${HOOK_NAME}] Todo API error`, { sessionID, error: String(err) })
+        return
+      }
+
+      if (!todos || todos.length === 0) {
+        log(`[${HOOK_NAME}] No todos found`, { sessionID })
+        return
+      }
+
+      const incomplete = todos.filter(
+        (t) => t.status !== "completed" && t.status !== "cancelled"
+      )
+
+      if (incomplete.length === 0) {
+        log(`[${HOOK_NAME}] All todos completed`, { sessionID, total: todos.length })
+        return
+      }
+
+      log(`[${HOOK_NAME}] Found incomplete todos, starting countdown`, { sessionID, incomplete: incomplete.length, total: todos.length })
+
+      const showCountdownToast = async (seconds: number): Promise<void> => {
+        await ctx.client.tui.showToast({
+          body: {
+            title: "Todo Continuation",
+            message: `Resuming in ${seconds}s... (${incomplete.length} tasks remaining)`,
+            variant: "warning" as const,
+            duration: TOAST_DURATION_MS,
+          },
+        }).catch(() => {})
+      }
+
+      const executeAfterCountdown = async (): Promise<void> => {
+        pendingCountdowns.delete(sessionID)
+        log(`[${HOOK_NAME}] Countdown finished, executing continuation`, { sessionID })
+
+        // Re-check conditions after countdown
+        if (recoveringSessions.has(sessionID)) {
+          log(`[${HOOK_NAME}] Abort: session entered recovery mode during countdown`, { sessionID })
           return
         }
 
-        if (remindedSessions.has(sessionID)) {
-          log(`[${HOOK_NAME}] Skipped: already reminded this session`, { sessionID })
+        if (interruptedSessions.has(sessionID) || errorSessions.has(sessionID)) {
+          log(`[${HOOK_NAME}] Abort: error/interrupt occurred during countdown`, { sessionID })
+          interruptedSessions.delete(sessionID)
+          errorSessions.delete(sessionID)
           return
         }
 
-        let todos: Todo[] = []
-        try {
-          log(`[${HOOK_NAME}] Fetching todos for session`, { sessionID })
-          const response = await ctx.client.session.todo({
-            path: { id: sessionID },
-          })
-          todos = (response.data ?? response) as Todo[]
-          log(`[${HOOK_NAME}] Todo API response`, { sessionID, todosCount: todos?.length ?? 0 })
-        } catch (err) {
-          log(`[${HOOK_NAME}] Todo API error`, { sessionID, error: String(err) })
-          return
-        }
-
-        if (!todos || todos.length === 0) {
-          log(`[${HOOK_NAME}] No todos found`, { sessionID })
-          return
-        }
-
-        const incomplete = todos.filter(
-          (t) => t.status !== "completed" && t.status !== "cancelled"
-        )
-
-        if (incomplete.length === 0) {
-          log(`[${HOOK_NAME}] All todos completed`, { sessionID, total: todos.length })
-          return
-        }
-
-        log(`[${HOOK_NAME}] Found incomplete todos`, { sessionID, incomplete: incomplete.length, total: todos.length })
         remindedSessions.add(sessionID)
-
-        // Re-check if abort occurred during the delay/fetch
-        if (interruptedSessions.has(sessionID) || errorSessions.has(sessionID) || recoveringSessions.has(sessionID)) {
-          log(`[${HOOK_NAME}] Abort occurred during delay/fetch`, { sessionID })
-          remindedSessions.delete(sessionID)
-          return
-        }
 
         try {
           // Get previous message's agent info to respect agent mode
@@ -206,30 +237,53 @@ export function createTodoContinuationEnforcer(ctx: PluginInput): TodoContinuati
           log(`[${HOOK_NAME}] Prompt injection failed`, { sessionID, error: String(err) })
           remindedSessions.delete(sessionID)
         }
-      }, 5000)
+      }
 
-      pendingTimers.set(sessionID, timer)
+      let secondsRemaining = COUNTDOWN_SECONDS
+      showCountdownToast(secondsRemaining).catch(() => {})
+
+      const intervalId = setInterval(() => {
+        secondsRemaining--
+        
+        if (secondsRemaining <= 0) {
+          clearInterval(intervalId)
+          pendingCountdowns.delete(sessionID)
+          executeAfterCountdown()
+          return
+        }
+
+        const countdown = pendingCountdowns.get(sessionID)
+        if (!countdown) {
+          clearInterval(intervalId)
+          return
+        }
+
+        countdown.secondsRemaining = secondsRemaining
+        showCountdownToast(secondsRemaining).catch(() => {})
+      }, 1000)
+
+      pendingCountdowns.set(sessionID, { secondsRemaining, intervalId })
     }
 
     if (event.type === "message.updated") {
       const info = props?.info as Record<string, unknown> | undefined
       const sessionID = info?.sessionID as string | undefined
-      log(`[${HOOK_NAME}] message.updated received`, { sessionID, role: info?.role })
+      const role = info?.role as string | undefined
+      const finish = info?.finish as boolean | undefined
+      log(`[${HOOK_NAME}] message.updated received`, { sessionID, role, finish })
       
-      if (sessionID && info?.role === "user") {
-        // Cancel pending continuation on user interaction (real user input)
-        const timer = pendingTimers.get(sessionID)
-        if (timer) {
-          clearTimeout(timer)
-          pendingTimers.delete(sessionID)
-          log(`[${HOOK_NAME}] Cancelled pending timer on user message`, { sessionID })
+      if (sessionID && role === "user") {
+        const countdown = pendingCountdowns.get(sessionID)
+        if (countdown) {
+          clearInterval(countdown.intervalId)
+          pendingCountdowns.delete(sessionID)
+          log(`[${HOOK_NAME}] Cancelled countdown on user message`, { sessionID })
         }
       }
-      
-      // Clear reminded state when assistant responds (allows re-remind on next idle)
-      if (sessionID && info?.role === "assistant" && remindedSessions.has(sessionID)) {
+
+      if (sessionID && role === "assistant" && finish) {
         remindedSessions.delete(sessionID)
-        log(`[${HOOK_NAME}] Cleared remindedSessions on assistant response`, { sessionID })
+        log(`[${HOOK_NAME}] Cleared reminded state on assistant finish`, { sessionID })
       }
     }
 
@@ -241,11 +295,10 @@ export function createTodoContinuationEnforcer(ctx: PluginInput): TodoContinuati
         errorSessions.delete(sessionInfo.id)
         recoveringSessions.delete(sessionInfo.id)
         
-        // Cancel pending continuation
-        const timer = pendingTimers.get(sessionInfo.id)
-        if (timer) {
-          clearTimeout(timer)
-          pendingTimers.delete(sessionInfo.id)
+        const countdown = pendingCountdowns.get(sessionInfo.id)
+        if (countdown) {
+          clearInterval(countdown.intervalId)
+          pendingCountdowns.delete(sessionInfo.id)
         }
       }
     }

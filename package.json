@@ -1,7 +1,7 @@
 {
   "name": "@carmandale/oh-my-opencode",
-  "version": "2.3.0-custom",
-  "description": "CUSTOM FORK: Dale Carman's oh-my-opencode with THINK.ALIGN.ACT paradigm",
+  "version": "2.4.0-custom",
+  "description": "CUSTOM FORK: Dale Carman's oh-my-opencode with THINK.ALIGN.ACT paradigm (upstream v2.4.0)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -27,7 +27,8 @@
     "local:install": "bun run rebuild && bun link",
     "local:use": "cd ~/.config/opencode && bun link @carmandale/oh-my-opencode",
     "prepublishOnly": "bun run clean && bun run build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "keywords": [
     "opencode",
@@ -50,7 +51,8 @@
   "homepage": "https://github.com/carmandale/oh-my-opencode#readme",
   "upstream": {
     "repository": "https://github.com/code-yeongyu/oh-my-opencode",
-    "npm": "oh-my-opencode"
+    "npm": "oh-my-opencode",
+    "version": "2.4.0"
   },
   "dependencies": {
     "@ast-grep/cli": "^0.40.0",

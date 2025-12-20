@@ -13,6 +13,8 @@ import {
   createThinkModeHook,
   createClaudeCodeHooksHook,
   createAnthropicAutoCompactHook,
+  createPreemptiveCompactionHook,
+  createCompactionContextInjector,
   createRulesInjectorHook,
   createBackgroundNotificationHook,
   createAutoUpdateCheckerHook,
@@ -255,6 +257,11 @@ const OhMyOpenCodePlugin: Plugin = async (ctx) => {
   const anthropicAutoCompact = isHookEnabled("anthropic-auto-compact")
     ? createAnthropicAutoCompactHook(ctx, { experimental: pluginConfig.experimental })
     : null;
+  const compactionContextInjector = createCompactionContextInjector();
+  const preemptiveCompaction = createPreemptiveCompactionHook(ctx, {
+    experimental: pluginConfig.experimental,
+    onBeforeSummarize: compactionContextInjector,
+  });
   const rulesInjector = isHookEnabled("rules-injector")
     ? createRulesInjectorHook(ctx)
     : null;
@@ -262,6 +269,7 @@ const OhMyOpenCodePlugin: Plugin = async (ctx) => {
     ? createAutoUpdateCheckerHook(ctx, {
         showStartupToast: isHookEnabled("startup-toast"),
         isSisyphusEnabled: pluginConfig.sisyphus_agent?.disabled !== true,
+        autoUpdate: pluginConfig.auto_update ?? true,
       })
     : null;
   const keywordDetector = isHookEnabled("keyword-detector")
@@ -441,6 +449,7 @@ const OhMyOpenCodePlugin: Plugin = async (ctx) => {
       await rulesInjector?.event(input);
       await thinkMode?.event(input);
       await anthropicAutoCompact?.event(input);
+      await preemptiveCompaction?.event(input);
       await agentUsageReminder?.event(input);
       await interactiveBashSession?.event(input);
 

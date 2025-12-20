@@ -1,45 +1,31 @@
 import type { PluginInput } from "@opencode-ai/plugin"
-import { checkForUpdate, getCachedVersion, getLocalDevVersion } from "./checker"
+import { getCachedVersion, getLocalDevVersion, findPluginEntry, getLatestVersion, updatePinnedVersion } from "./checker"
 import { invalidatePackage } from "./cache"
 import { PACKAGE_NAME } from "./constants"
 import { log } from "../../shared/logger"
 import { getConfigLoadErrors, clearConfigLoadErrors } from "../../shared/config-errors"
 import type { AutoUpdateCheckerOptions } from "./types"
 
+const CUSTOM_BUILD_TAG = "[CUSTOM BUILD]"
+
 export function createAutoUpdateCheckerHook(ctx: PluginInput, options: AutoUpdateCheckerOptions = {}) {
-  const { showStartupToast = true, isSisyphusEnabled = false } = options
+  const { showStartupToast = true, isSisyphusEnabled = false, autoUpdate = true } = options
 
   const getToastMessage = (isUpdate: boolean, latestVersion?: string): string => {
-    const customBuildTag = "[CUSTOM BUILD]"
     if (isSisyphusEnabled) {
       return isUpdate
-        ? `${customBuildTag} THINK.ALIGN.ACT. Sisyphus steering.\nUpstream v${latestVersion} available.`
-        : `${customBuildTag} THINK.ALIGN.ACT. Sisyphus steering.`
+        ? `${CUSTOM_BUILD_TAG} THINK.ALIGN.ACT. Sisyphus steering.\nUpstream v${latestVersion} available.`
+        : `${CUSTOM_BUILD_TAG} THINK.ALIGN.ACT. Sisyphus steering.`
     }
     return isUpdate
-      ? `${customBuildTag} oMoMoMoMo...\nUpstream v${latestVersion} available.`
-      : `${customBuildTag} oMoMoMoMo...`
-  }
-
-  const showVersionToast = async (version: string | null): Promise<void> => {
-    const displayVersion = version ?? "unknown"
-    await ctx.client.tui
-      .showToast({
-        body: {
-          title: `@carmandale/oh-my-opencode ${displayVersion}`,
-          message: getToastMessage(false),
-          variant: "info" as const,
-          duration: 5000,
-        },
-      })
-      .catch(() => {})
-    log(`[auto-update-checker] Startup toast shown: v${displayVersion}`)
+      ? `${CUSTOM_BUILD_TAG} oMoMoMoMo...\nUpstream v${latestVersion} available.`
+      : `${CUSTOM_BUILD_TAG} oMoMoMoMo...`
   }
 
   let hasChecked = false
 
   return {
-    event: async ({ event }: { event: { type: string; properties?: unknown } }) => {
+    event: ({ event }: { event: { type: string; properties?: unknown } }) => {
       if (event.type !== "session.created") return
       if (hasChecked) return
 
@@ -48,54 +34,82 @@ export function createAutoUpdateCheckerHook(ctx: PluginInput, options: AutoUpdat
 
       hasChecked = true
 
-      try {
-        const result = await checkForUpdate(ctx.directory)
+      setTimeout(() => {
+        const cachedVersion = getCachedVersion()
+        const localDevVersion = getLocalDevVersion(ctx.directory)
+        const displayVersion = localDevVersion ?? cachedVersion
 
-        if (result.isLocalDev) {
-          log("[auto-update-checker] Skipped: local development mode")
+        showConfigErrorsIfAny(ctx).catch(() => {})
+
+        if (localDevVersion) {
           if (showStartupToast) {
-            const version = getLocalDevVersion(ctx.directory) ?? getCachedVersion()
-            await showVersionToast(version)
+            showLocalDevToast(ctx, displayVersion, isSisyphusEnabled).catch(() => {})
           }
+          log("[auto-update-checker] Local development mode")
           return
         }
 
-        if (result.isPinned) {
-          log(`[auto-update-checker] Skipped: version pinned to ${result.currentVersion}`)
-          if (showStartupToast) {
-            await showVersionToast(result.currentVersion)
-          }
-          return
+        if (showStartupToast) {
+          showVersionToast(ctx, displayVersion, getToastMessage(false)).catch(() => {})
         }
 
-        if (!result.needsUpdate) {
-          log("[auto-update-checker] No update needed")
-          if (showStartupToast) {
-            await showVersionToast(result.currentVersion)
-          }
-          return
-        }
-
-        invalidatePackage(PACKAGE_NAME)
-
-        await ctx.client.tui
-          .showToast({
-            body: {
-              title: `@carmandale/oh-my-opencode (upstream: ${result.latestVersion})`,
-              message: getToastMessage(true, result.latestVersion ?? undefined),
-              variant: "info" as const,
-              duration: 8000,
-            },
-          })
-          .catch(() => {})
-
-        log(`[auto-update-checker] Update notification sent: v${result.currentVersion} → v${result.latestVersion}`)
-      } catch (err) {
-        log("[auto-update-checker] Error during update check:", err)
-      }
-
-      await showConfigErrorsIfAny(ctx)
+        runBackgroundUpdateCheck(ctx, autoUpdate, getToastMessage).catch(err => {
+          log("[auto-update-checker] Background update check failed:", err)
+        })
+      }, 0)
     },
+  }
+}
+
+async function runBackgroundUpdateCheck(
+  ctx: PluginInput, 
+  autoUpdate: boolean,
+  getToastMessage: (isUpdate: boolean, latestVersion?: string) => string
+): Promise<void> {
+  const pluginInfo = findPluginEntry(ctx.directory)
+  if (!pluginInfo) {
+    log("[auto-update-checker] Plugin not found in config")
+    return
+  }
+
+  const cachedVersion = getCachedVersion()
+  const currentVersion = cachedVersion ?? pluginInfo.pinnedVersion
+  if (!currentVersion) {
+    log("[auto-update-checker] No version found (cached or pinned)")
+    return
+  }
+
+  const latestVersion = await getLatestVersion()
+  if (!latestVersion) {
+    log("[auto-update-checker] Failed to fetch latest version")
+    return
+  }
+
+  if (currentVersion === latestVersion) {
+    log("[auto-update-checker] Already on latest version")
+    return
+  }
+
+  log(`[auto-update-checker] Update available: ${currentVersion} → ${latestVersion}`)
+
+  if (!autoUpdate) {
+    await showUpdateAvailableToast(ctx, latestVersion, getToastMessage)
+    log("[auto-update-checker] Auto-update disabled, notification only")
+    return
+  }
+
+  if (pluginInfo.isPinned) {
+    const updated = updatePinnedVersion(pluginInfo.configPath, pluginInfo.entry, latestVersion)
+    if (updated) {
+      invalidatePackage(PACKAGE_NAME)
+      await showAutoUpdatedToast(ctx, currentVersion, latestVersion)
+      log(`[auto-update-checker] Config updated: ${pluginInfo.entry} → ${PACKAGE_NAME}@${latestVersion}`)
+    } else {
+      await showUpdateAvailableToast(ctx, latestVersion, getToastMessage)
+    }
+  } else {
+    invalidatePackage(PACKAGE_NAME)
+    await showUpdateAvailableToast(ctx, latestVersion, getToastMessage)
   }
 }
 
@@ -117,6 +131,71 @@ async function showConfigErrorsIfAny(ctx: PluginInput): Promise<void> {
 
   log(`[auto-update-checker] Config load errors shown: ${errors.length} error(s)`)
   clearConfigLoadErrors()
+}
+
+async function showVersionToast(ctx: PluginInput, version: string | null, message: string): Promise<void> {
+  const displayVersion = version ?? "unknown"
+  await ctx.client.tui
+    .showToast({
+      body: {
+        title: `@carmandale/oh-my-opencode ${displayVersion}`,
+        message,
+        variant: "info" as const,
+        duration: 5000,
+      },
+    })
+    .catch(() => {})
+  log(`[auto-update-checker] Startup toast shown: v${displayVersion}`)
+}
+
+async function showUpdateAvailableToast(
+  ctx: PluginInput, 
+  latestVersion: string,
+  getToastMessage: (isUpdate: boolean, latestVersion?: string) => string
+): Promise<void> {
+  await ctx.client.tui
+    .showToast({
+      body: {
+        title: `@carmandale/oh-my-opencode (upstream: ${latestVersion})`,
+        message: getToastMessage(true, latestVersion),
+        variant: "info" as const,
+        duration: 8000,
+      },
+    })
+    .catch(() => {})
+  log(`[auto-update-checker] Update available toast shown: v${latestVersion}`)
+}
+
+async function showAutoUpdatedToast(ctx: PluginInput, oldVersion: string, newVersion: string): Promise<void> {
+  await ctx.client.tui
+    .showToast({
+      body: {
+        title: `@carmandale/oh-my-opencode Updated!`,
+        message: `v${oldVersion} → v${newVersion}\nRestart OpenCode to apply.`,
+        variant: "success" as const,
+        duration: 8000,
+      },
+    })
+    .catch(() => {})
+  log(`[auto-update-checker] Auto-updated toast shown: v${oldVersion} → v${newVersion}`)
+}
+
+async function showLocalDevToast(ctx: PluginInput, version: string | null, isSisyphusEnabled: boolean): Promise<void> {
+  const displayVersion = version ?? "dev"
+  const message = isSisyphusEnabled
+    ? `${CUSTOM_BUILD_TAG} THINK.ALIGN.ACT. Local dev mode.`
+    : `${CUSTOM_BUILD_TAG} Local development mode. oMoMoMo...`
+  await ctx.client.tui
+    .showToast({
+      body: {
+        title: `@carmandale/oh-my-opencode ${displayVersion} (dev)`,
+        message,
+        variant: "warning" as const,
+        duration: 5000,
+      },
+    })
+    .catch(() => {})
+  log(`[auto-update-checker] Local dev toast shown: v${displayVersion}`)
 }
 
 export type { UpdateCheckResult, AutoUpdateCheckerOptions } from "./types"
