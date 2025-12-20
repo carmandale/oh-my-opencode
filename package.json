@@ -1,7 +1,7 @@
 {
-  "name": "oh-my-opencode",
-  "version": "2.3.0",
-  "description": "OpenCode plugin - custom agents (oracle, librarian) and enhanced features",
+  "name": "@carmandale/oh-my-opencode",
+  "version": "2.3.0-custom",
+  "description": "CUSTOM FORK: Dale Carman's oh-my-opencode with THINK.ALIGN.ACT paradigm",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -23,6 +23,9 @@
     "build": "bun build src/index.ts src/google-auth.ts --outdir dist --target bun --format esm --external @ast-grep/napi && tsc --emitDeclarationOnly && bun run build:schema",
     "build:schema": "bun run script/build-schema.ts",
     "clean": "rm -rf dist",
+    "rebuild": "bun run clean && bun run build",
+    "local:install": "bun run rebuild && bun link",
+    "local:use": "cd ~/.config/opencode && bun link @carmandale/oh-my-opencode",
     "prepublishOnly": "bun run clean && bun run build",
     "typecheck": "tsc --noEmit"
   },
@@ -35,16 +38,20 @@
     "ai",
     "llm"
   ],
-  "author": "YeonGyu-Kim",
+  "author": "Dale Carman (fork of YeonGyu-Kim)",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/code-yeongyu/oh-my-opencode.git"
+    "url": "git+https://github.com/carmandale/oh-my-opencode.git"
   },
   "bugs": {
-    "url": "https://github.com/code-yeongyu/oh-my-opencode/issues"
+    "url": "https://github.com/carmandale/oh-my-opencode/issues"
   },
-  "homepage": "https://github.com/code-yeongyu/oh-my-opencode#readme",
+  "homepage": "https://github.com/carmandale/oh-my-opencode#readme",
+  "upstream": {
+    "repository": "https://github.com/code-yeongyu/oh-my-opencode",
+    "npm": "oh-my-opencode"
+  },
   "dependencies": {
     "@ast-grep/cli": "^0.40.0",
     "@ast-grep/napi": "^0.40.0",

@@ -10,14 +10,15 @@ export function createAutoUpdateCheckerHook(ctx: PluginInput, options: AutoUpdat
   const { showStartupToast = true, isSisyphusEnabled = false } = options
 
   const getToastMessage = (isUpdate: boolean, latestVersion?: string): string => {
+    const customBuildTag = "[CUSTOM BUILD]"
     if (isSisyphusEnabled) {
       return isUpdate
-        ? `Sisyphus on steroids is steering OpenCode.\nv${latestVersion} available. Restart to apply.`
-        : `Sisyphus on steroids is steering OpenCode.`
+        ? `${customBuildTag} THINK.ALIGN.ACT. Sisyphus steering.\nUpstream v${latestVersion} available.`
+        : `${customBuildTag} THINK.ALIGN.ACT. Sisyphus steering.`
     }
     return isUpdate
-      ? `OpenCode is now on Steroids. oMoMoMoMo...\nv${latestVersion} available. Restart OpenCode to apply.`
-      : `OpenCode is now on Steroids. oMoMoMoMo...`
+      ? `${customBuildTag} oMoMoMoMo...\nUpstream v${latestVersion} available.`
+      : `${customBuildTag} oMoMoMoMo...`
   }
 
   const showVersionToast = async (version: string | null): Promise<void> => {
@@ -25,7 +26,7 @@ export function createAutoUpdateCheckerHook(ctx: PluginInput, options: AutoUpdat
     await ctx.client.tui
       .showToast({
         body: {
-          title: `OhMyOpenCode ${displayVersion}`,
+          title: `@carmandale/oh-my-opencode ${displayVersion}`,
           message: getToastMessage(false),
           variant: "info" as const,
           duration: 5000,
@@ -80,7 +81,7 @@ export function createAutoUpdateCheckerHook(ctx: PluginInput, options: AutoUpdat
         await ctx.client.tui
           .showToast({
             body: {
-              title: `OhMyOpenCode ${result.latestVersion}`,
+              title: `@carmandale/oh-my-opencode (upstream: ${result.latestVersion})`,
               message: getToastMessage(true, result.latestVersion ?? undefined),
               variant: "info" as const,
               duration: 8000,

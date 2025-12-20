@@ -1,8 +1,55 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2025-12-16T16:00:00+09:00
-**Commit:** a2d2109
+> **⚠️ CUSTOM FORK: @carmandale/oh-my-opencode**
+> 
+> This is Dale Carman's fork with the **THINK. ALIGN. ACT.** paradigm.
+> NOT the upstream npm release. Built and installed locally via `bun link`.
+> 
+> - **Upstream**: `code-yeongyu/oh-my-opencode` (npm: `oh-my-opencode`)
+> - **This fork**: `carmandale/oh-my-opencode` (npm: `@carmandale/oh-my-opencode`)
+
 **Branch:** master
+
+## CUSTOM FORK DETAILS
+
+### THINK. ALIGN. ACT. Paradigm
+
+Location: `src/agents/paradigm/think-align-act.ts`
+
+This module contains Dale's agent philosophy:
+- **North Star**: Working code over perfect code
+- **THINK**: Understand before touching anything  
+- **ALIGN**: Get confirmation before significant actions
+- **ACT**: Execute only after understanding and alignment
+- **Safety Limits**: Agent spawning limits, git safety, scope creep prevention
+
+The paradigm is imported into `sisyphus.ts` and composited into the system prompt.
+
+### Local Build & Install
+
+```bash
+# Build and link locally
+bun run local:install
+
+# Use in OpenCode (run from ~/.config/opencode)
+bun run local:use
+
+# Or manually:
+bun run rebuild && bun link
+cd ~/.config/opencode && bun link @carmandale/oh-my-opencode
+```
+
+### Merging Upstream Changes
+
+1. Fetch upstream: `git fetch upstream`
+2. Check what's new: `git log HEAD..upstream/master --oneline`
+3. Merge: `git merge upstream/master`
+4. Resolve conflicts in `sisyphus.ts` (keep paradigm imports)
+5. Rebuild: `bun run local:install`
+
+The paradigm module is isolated - conflicts should only occur in:
+- `src/agents/sisyphus.ts` (the import and composition)
+- `package.json` (keep your custom name/scripts)
 
 ## OVERVIEW
 
@@ -104,25 +151,20 @@ bun run build:schema
 
 ## DEPLOYMENT
 
-**GitHub Actions workflow_dispatch only**
-
-1. package.json version NOT modified locally (auto-bumped by workflow)
-2. Commit & push changes
-3. Trigger `publish` workflow manually:
-   - `bump`: major | minor | patch
-   - `version`: (optional) specific version override
+**This fork is NOT published to npm. Use local build only.**
 
 ```bash
-# Trigger via CLI
-gh workflow run publish -f bump=patch
+# Build and install locally
+bun run local:install
 
-# Check status
-gh run list --workflow=publish
+# After changes, rebuild:
+bun run rebuild && bun link
 ```
 
-**Critical**:
-- Never run `bun publish` directly (OIDC provenance issue)
-- Never bump version locally
+### Upstream Deployment (for reference)
+
+The upstream repo uses GitHub Actions workflow_dispatch for npm publishing.
+This fork does NOT use that workflow - we build locally.
 
 ## NOTES
 
