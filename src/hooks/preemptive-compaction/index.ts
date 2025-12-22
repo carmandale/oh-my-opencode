@@ -3,8 +3,10 @@ import type { ExperimentalConfig } from "../../config"
 import type { PreemptiveCompactionState, TokenInfo } from "./types"
 import {
   DEFAULT_THRESHOLD,
+  EMERGENCY_THRESHOLD,
   MIN_TOKENS_FOR_COMPACTION,
   COMPACTION_COOLDOWN_MS,
+  COMPACTION_COOLDOWN_HIGH_USAGE_MS,
 } from "./constants"
 import { log } from "../../shared/logger"
 
@@ -91,25 +93,31 @@ export function createPreemptiveCompactionHook(
 
   const checkAndTriggerCompaction = async (
     sessionID: string,
-    lastAssistant: MessageInfo
-  ): Promise<void> => {
-    if (state.compactionInProgress.has(sessionID)) return
+    lastAssistant: MessageInfo,
+    isPrePrompt = false
+  ): Promise<boolean> => {
+    if (state.compactionInProgress.has(sessionID)) return false
 
-    const lastCompaction = state.lastCompactionTime.get(sessionID) ?? 0
-    if (Date.now() - lastCompaction < COMPACTION_COOLDOWN_MS) return
-
-    if (lastAssistant.summary === true) return
+    if (lastAssistant.summary === true) return false
 
     const tokens = lastAssistant.tokens
-    if (!tokens) return
+    if (!tokens) return false
 
     const modelID = lastAssistant.modelID ?? ""
     const contextLimit = getContextLimit(modelID)
     const totalUsed = tokens.input + tokens.cache.read + tokens.output
 
-    if (totalUsed < MIN_TOKENS_FOR_COMPACTION) return
+    if (totalUsed < MIN_TOKENS_FOR_COMPACTION) return false
 
     const usageRatio = totalUsed / contextLimit
+    const isEmergency = usageRatio >= EMERGENCY_THRESHOLD
+    const isHighUsage = usageRatio >= threshold
+
+    const lastCompaction = state.lastCompactionTime.get(sessionID) ?? 0
+    const timeSinceLastCompaction = Date.now() - lastCompaction
+    const cooldown = isEmergency ? 0 : (isHighUsage ? COMPACTION_COOLDOWN_HIGH_USAGE_MS : COMPACTION_COOLDOWN_MS)
+
+    if (timeSinceLastCompaction < cooldown) return false
 
     log("[preemptive-compaction] checking", {
       sessionID,
@@ -117,9 +125,11 @@ export function createPreemptiveCompactionHook(
       contextLimit,
       usageRatio: usageRatio.toFixed(2),
       threshold,
+      isEmergency,
+      isPrePrompt,
     })
 
-    if (usageRatio < threshold) return
+    if (usageRatio < threshold) return false
 
     state.compactionInProgress.add(sessionID)
     state.lastCompactionTime.set(sessionID, Date.now())
@@ -127,21 +137,24 @@ export function createPreemptiveCompactionHook(
     const providerID = lastAssistant.providerID
     if (!providerID || !modelID) {
       state.compactionInProgress.delete(sessionID)
-      return
+      return false
     }
+
+    const toastTitle = isEmergency ? "Emergency Compaction" : "Preemptive Compaction"
+    const toastVariant = isEmergency ? "error" : "warning"
 
     await ctx.client.tui
       .showToast({
         body: {
-          title: "Preemptive Compaction",
+          title: toastTitle,
           message: `Context at ${(usageRatio * 100).toFixed(0)}% - compacting to prevent overflow...`,
-          variant: "warning",
+          variant: toastVariant,
           duration: 3000,
         },
       })
       .catch(() => {})
 
-    log("[preemptive-compaction] triggering compaction", { sessionID, usageRatio })
+    log("[preemptive-compaction] triggering compaction", { sessionID, usageRatio, isEmergency, isPrePrompt })
 
     try {
       if (onBeforeSummarize) {
@@ -170,10 +183,34 @@ export function createPreemptiveCompactionHook(
           },
         })
         .catch(() => {})
+      
+      return true
     } catch (err) {
       log("[preemptive-compaction] compaction failed", { sessionID, error: err })
+      return false
     } finally {
       state.compactionInProgress.delete(sessionID)
+    }
+  }
+
+  const checkPrePrompt = async (sessionID: string): Promise<boolean> => {
+    try {
+      const resp = await ctx.client.session.messages({
+        path: { id: sessionID },
+        query: { directory: ctx.directory },
+      })
+
+      const messages = (resp.data ?? resp) as MessageWrapper[]
+      const assistants = messages
+        .filter((m) => m.info.role === "assistant")
+        .map((m) => m.info)
+
+      if (assistants.length === 0) return false
+
+      const lastAssistant = assistants[assistants.length - 1]
+      return await checkAndTriggerCompaction(sessionID, lastAssistant, true)
+    } catch {
+      return false
     }
   }
 
@@ -227,5 +264,6 @@ export function createPreemptiveCompactionHook(
 
   return {
     event: eventHandler,
+    checkPrePrompt,
   }
 }

@@ -316,6 +316,10 @@ const OhMyOpenCodePlugin: Plugin = async (ctx) => {
     },
 
     "chat.message": async (input, output) => {
+      const chatInput = input as { sessionID?: string; role?: string }
+      if (chatInput.sessionID && chatInput.role === "user") {
+        await preemptiveCompaction?.checkPrePrompt?.(chatInput.sessionID)
+      }
       await claudeCodeHooks["chat.message"]?.(input, output);
       await keywordDetector?.["chat.message"]?.(input, output);
     },
